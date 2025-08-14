@@ -604,7 +604,7 @@ class NFLDFSPredictor:
             return pd.DataFrame()
 
         results = []
-
+        features = features.drop_duplicates(subset=["player_id", "position"]) #just added for duplicates
         for position in self.positions:
             pos_data = features[features['position'] == position].copy()
             if len(pos_data) == 0:
