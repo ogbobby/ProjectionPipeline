@@ -22,11 +22,11 @@ warnings.filterwarnings('ignore')
 current_dir = os.path.dirname(__file__)
 scripts_dir = os.path.join(current_dir, '..', 'scripts')
 sys.path.append(scripts_dir)
-
+#we need to add all the functions that we werent using before PlaySelection, scrapDVOA, passingDEFData, rushingDEFData, offPlays
 try:
     from nflpyStats import GetQBData, GetRBData, GetWRData, GetTEData, GetDepthCharts
     from playerStatScraper import redZonePassing, redZoneRushing, redZoneReceiving, PosPtsperWeek, boomBust
-    from teamScrapers import TurnDiff, PenDiff, TeamScoring, targetDistro, Schedule2025, teamDEFData, advancedDEFData
+    from teamScrapers import TurnDiff, PenDiff, TeamScoring, targetDistro, Schedule2025, teamDEFData, advancedDEFData, PlaySelection, scrapDVOA, passingDEFData, rushingDEFData, offPlays
     print("Successfully imported all scrapers")
 except ImportError as e:
     print(f"Error importing scrapers: {e}")
@@ -232,16 +232,16 @@ class NFLDFSPredictor:
             
             # Position-specific salary ranges
             if pos == 'QB':
-                base_salary = 6000
-                max_salary = 9500
+                base_salary = 4500
+                max_salary = 10000
             elif pos == 'RB':
                 base_salary = 4500
-                max_salary = 9000
+                max_salary = 10000
             elif pos == 'WR':
-                base_salary = 4000
-                max_salary = 8500
+                base_salary = 3200
+                max_salary = 10000
             else:  # TE
-                base_salary = 3500
+                base_salary = 3000
                 max_salary = 7500
             
             # Scale salary based on fantasy points percentile within position
@@ -556,45 +556,117 @@ class NFLDFSPredictor:
     #     leverage = (proj_pct - own_pct) * 100
     #     return leverage.values
     
-    def run_full_pipeline(self):
-        """Run the complete prediction pipeline"""
-        print("Starting NFL DFS prediction pipeline...")
+    # def run_full_pipeline(self):
+    #     """Run the complete prediction pipeline"""
+    #     print("Starting NFL DFS prediction pipeline...")
         
+    #     # Load real data
+    #     df, team_data, target_data, def_data, schedule = self.load_data()
+        
+    #     if df.empty:
+    #         print("No player data loaded - cannot generate predictions")
+    #         return pd.DataFrame()
+        
+    #     # Engineer features
+    #     features = self.engineer_features(df, team_data, target_data, def_data, schedule)
+        
+    #     if features.empty:
+    #         print("Feature engineering failed - cannot generate predictions")
+    #         return pd.DataFrame()
+        
+    #     # Train models by position
+    #     print("Training models by position...")
+    #     for position in self.positions:
+    #         pos_data = features[features['position'] == position].copy()
+    #         if len(pos_data) < 10:
+    #             print(f"Skipping {position} - insufficient data ({len(pos_data)} records)")
+    #             continue
+                
+    #         X, y, feature_cols = self.prepare_training_data(pos_data)
+    #         if X.empty:
+    #             continue
+                
+    #         self.feature_columns[position] = feature_cols
+    #         models, scaler = self.train_models(X, y, position)
+    #         self.models[position] = models
+    #         self.scalers[position] = scaler
+        
+    #     # Generate predictions
+    #     print("Generating predictions...")
+    #     predictions = self.generate_predictions(features)
+        
+    #     return predictions
+    
+    #This is new pipeine to seperate out historical and live data
+    def run_full_pipeline(self):
+        """Run the full prediction pipeline: train on historical, predict on upcoming"""
+
+        print("🔄 Running full pipeline...")
+
         # Load real data
         df, team_data, target_data, def_data, schedule = self.load_data()
         
         if df.empty:
             print("No player data loaded - cannot generate predictions")
             return pd.DataFrame()
-        
+    
         # Engineer features
         features = self.engineer_features(df, team_data, target_data, def_data, schedule)
-        
+    
         if features.empty:
             print("Feature engineering failed - cannot generate predictions")
             return pd.DataFrame()
-        
-        # Train models by position
-        print("Training models by position...")
+
+        # Step 2 — Separate historical and upcoming
+        if 'actual_points' in features.columns:
+            training_df = features.dropna(subset=['actual_points'])
+            upcoming_df = features[features['actual_points'].isna()]
+        elif 'game_date' in features.columns:
+            today = pd.Timestamp.today()
+            training_df = features[features['game_date'] < today]
+            upcoming_df = features[features['game_date'] >= today]
+        else:
+            print("⚠️ No way to split historical vs upcoming — using all data for both")
+            training_df = features.copy()
+            upcoming_df = features.copy()
+
+        if training_df.empty:
+            print("⚠️ No historical data found — cannot train models.")
+            return pd.DataFrame()
+
+        if upcoming_df.empty:
+            print("⚠️ No upcoming games found — nothing to predict.")
+            return pd.DataFrame()
+
+        # Step 3 — Train models per position
         for position in self.positions:
-            pos_data = features[features['position'] == position].copy()
-            if len(pos_data) < 10:
-                print(f"Skipping {position} - insufficient data ({len(pos_data)} records)")
+            pos_train = training_df[training_df['position'] == position]
+            if pos_train.empty:
+                print(f"⚠️ No training data for {position}")
                 continue
-                
-            X, y, feature_cols = self.prepare_training_data(pos_data)
-            if X.empty:
+
+            X_pos, y_pos, _ = self.prepare_training_data(pos_train)
+            if X_pos.empty:
+                print(f"⚠️ No features for training {position}")
                 continue
-                
-            self.feature_columns[position] = feature_cols
-            models, scaler = self.train_models(X, y, position)
-            self.models[position] = models
-            self.scalers[position] = scaler
-        
-        # Generate predictions
-        print("Generating predictions...")
-        predictions = self.generate_predictions(features)
-        
+
+            try:
+                models, scaler = self.train_models(X_pos, y_pos, position)
+                self.models[position] = models
+                self.scalers[position] = scaler
+                self.feature_columns[position] = X_pos.columns.tolist()
+                print(f"✅ Trained model for {position}")
+            except Exception as e:
+                print(f"❌ Failed to train {position}: {e}")
+
+        # Step 4 — Generate predictions for upcoming games
+        predictions = self.generate_predictions(upcoming_df)
+
+        if predictions.empty:
+            print("⚠️ No predictions generated.")
+        else:
+            print(f"✅ Generated {len(predictions)} predictions.")
+
         return predictions
     
     def generate_predictions(self, features):
@@ -604,7 +676,7 @@ class NFLDFSPredictor:
             return pd.DataFrame()
 
         results = []
-
+        features = features.drop_duplicates(subset=["player_id", "position"]) #just added for duplicates
         for position in self.positions:
             pos_data = features[features['position'] == position].copy()
             if len(pos_data) == 0:
