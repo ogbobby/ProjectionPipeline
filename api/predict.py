@@ -22,11 +22,11 @@ warnings.filterwarnings('ignore')
 current_dir = os.path.dirname(__file__)
 scripts_dir = os.path.join(current_dir, '..', 'scripts')
 sys.path.append(scripts_dir)
-
+#we need to add all the functions that we werent using before PlaySelection, scrapDVOA, passingDEFData, rushingDEFData, offPlays
 try:
     from nflpyStats import GetQBData, GetRBData, GetWRData, GetTEData, GetDepthCharts
     from playerStatScraper import redZonePassing, redZoneRushing, redZoneReceiving, PosPtsperWeek, boomBust
-    from teamScrapers import TurnDiff, PenDiff, TeamScoring, targetDistro, Schedule2025, teamDEFData, advancedDEFData
+    from teamScrapers import TurnDiff, PenDiff, TeamScoring, targetDistro, Schedule2025, teamDEFData, advancedDEFData, PlaySelection, scrapDVOA, passingDEFData, rushingDEFData, offPlays
     print("Successfully imported all scrapers")
 except ImportError as e:
     print(f"Error importing scrapers: {e}")
@@ -232,16 +232,16 @@ class NFLDFSPredictor:
             
             # Position-specific salary ranges
             if pos == 'QB':
-                base_salary = 6000
-                max_salary = 9500
+                base_salary = 4500
+                max_salary = 10000
             elif pos == 'RB':
                 base_salary = 4500
-                max_salary = 9000
+                max_salary = 10000
             elif pos == 'WR':
-                base_salary = 4000
-                max_salary = 8500
+                base_salary = 3200
+                max_salary = 10000
             else:  # TE
-                base_salary = 3500
+                base_salary = 3000
                 max_salary = 7500
             
             # Scale salary based on fantasy points percentile within position
