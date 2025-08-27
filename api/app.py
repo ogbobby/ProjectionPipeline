@@ -69,44 +69,73 @@ def initialize_predictor():
 # ----------------------------------------------------------------------------
 @app.route("/api/predictions", methods=["GET"])
 def get_predictions():
-    global cached_predictions, last_update
-
-    if cached_predictions is None or len(cached_predictions) == 0:
-        return jsonify({"error": "No predictions available"}), 500
-
     try:
-        # Get query parameters
-        position = request.args.get("position", "ALL")
-        min_salary = request.args.get("min_salary", 0, type=int)
-        max_salary = request.args.get("max_salary", 50000, type=int)
-        max_ownership = request.args.get("max_ownership", 100, type=float)
+        if predictor.cached_predictions is None:
+            return jsonify({"error": "Predictions not ready"}), 503
 
-        # Work on a DataFrame copy
-        df = cached_predictions.copy()
+        df = predictor.cached_predictions.copy()
 
-        if position != "ALL":
-            df = df[df["position"] == position]
+        # --- Load DK main slate salaries ---
+        dk_salaries = pd.read_csv("/home/iamgeneral/Documents/NewRepo/ProjectionPipeline/api/data/DKSalaries.csv")
+        valid_players = set(dk_salaries['Name'])  # or dk_salaries['PlayerID'] if available
 
-        df = df[
-            (df["salary"] >= min_salary)
-            & (df["salary"] <= max_salary)
-            & (df["ownership"] <= max_ownership)
-        ]
+        # --- Filter predictions to main slate players ---
+        df = df[df['name'].isin(valid_players)]
+        #df = df.drop_duplicates(subset=["name"])
 
-        predictions = df.to_dict(orient="records")
+        # --- Optional: Apply salary filters from frontend query params ---
+        min_salary = request.args.get("min_salary", type=int)
+        max_salary = request.args.get("max_salary", type=int)
 
-        return jsonify(
-            {
-                "predictions": predictions,
-                "total_count": len(predictions),
-                "last_update": last_update.isoformat() if last_update else None,
-            }
-        )
+        if min_salary is not None:
+            df = df[df['Salary'] >= min_salary]
+        if max_salary is not None:
+            df = df[df['Salary'] <= max_salary]
+
+        # Return filtered predictions
+        return df.to_json(orient="records")
 
     except Exception as e:
-        print(f"Error returning predictions: {e}")
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+# @app.route("/api/predictions", methods=["GET"])
+# def get_predictions():
+#     try:
+#         if predictor.cached_predictions is None:
+#             return jsonify({"error": "Predictions not ready"}), 503
+
+#         df = predictor.cached_predictions.copy()
+
+#         # --- Optional: apply salary filters from frontend query params ---
+#         min_salary = request.args.get("min_salary", type=int)
+#         max_salary = request.args.get("max_salary", type=int)
+
+#         if min_salary is not None:
+#             df = df[df["salary"].fillna(0) >= min_salary]
+#         if max_salary is not None:
+#             df = df[df["salary"].fillna(0) <= max_salary]
+
+#         # --- Rename columns for frontend compatibility ---
+#         df = df.rename(columns={
+#             "name": "Name",
+#             "position": "Pos",
+#             "team": "Team",
+#             "salary": "Salary",
+#             "projection": "Projection",
+#             "ownership": "Ownership",
+#             "value": "Value",
+#             "leverage": "Leverage"
+#         })
+
+#         # --- Ensure only required columns are returned ---
+#         output_columns = ["Name", "Pos", "Team", "Salary", "Projection", "Ownership", "Value", "Leverage"]
+#         df = df[[col for col in output_columns if col in df.columns]]
+
+#         return jsonify(df.to_dict(orient="records"))
+
+#     except Exception as e:
+#         print(f"Error returning predictions: {e}")
+#         #return jsonify({"error": str(e)}), 500
+#         return jsonify(df.to_dict(orient="records")), 200
 
 
 # ----------------------------------------------------------------------------
