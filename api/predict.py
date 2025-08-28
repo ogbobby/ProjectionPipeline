@@ -10,6 +10,10 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
 import warnings
 
+# Floor/Ceiling multipliers (tunable)
+FLOOR_MULTIPLIER = 1.0   # use 1.0 for conservative floor (cash games), higher for riskier
+CEILING_MULTIPLIER = 1.5 # use >1.0 to widen upside range (e.g., 1.5–2.0 for GPPs)
+
 # Add the scripts directory to path to import our scrapers
 current_dir = os.path.dirname(__file__)
 scripts_dir = os.path.join(current_dir, '..', 'scripts')
@@ -117,80 +121,6 @@ class NFLDFSPredictor:
             ])
         return pd.concat(dfs, ignore_index=True)
     
-    # def create_features(self):
-
-    #     print(f"Creating features for season {self.season}...")
-
-    #     # -----------------------
-    #     # 1. Load Player Data
-    #     # -----------------------
-    #     try:
-    #         qbs = GetQBData()
-    #         rbs = GetRBData()
-    #         wrs = GetWRData()
-    #         tes = GetTEData()
-    #     except Exception as e:
-    #         raise RuntimeError(f"CRITICAL ERROR: Failed to load player data → {e}")
-
-    #     players = pd.concat([qbs, rbs, wrs, tes], ignore_index=True, sort=False)
-    #     print(f"✅ Loaded player data, shape={players.shape}")
-
-    #     # -----------------------
-    #     # 2. Merge Additional Data
-    #     # -----------------------
-    #     def safe_merge(df, data_func, on, name):
-    #         try:
-    #             data = data_func()
-    #             if data is None or data.empty:
-    #                 print(f"⚠️ {name} returned no usable data")
-    #                 return df
-    #             merged = df.merge(data, on=on, how="left")
-    #             print(f"✅ Merged {name} on '{on}' → players.shape={merged.shape}")
-    #             return merged
-    #         except Exception as e:
-    #             print(f"⚠️ Error in {name}: {e}")
-    #             return df
-
-    #     # Merge player-level
-    #     players = safe_merge(players, redZonePassing(self.season), "name", "redZonePassing")
-    #     players = safe_merge(players, redZoneRushing(self.season), "name", "redZoneRushing")
-    #     players = safe_merge(players, redZoneReceiving(self.season), "name", "redZoneReceiving")
-    #     players = safe_merge(players, boomBust(self.season), "name", "boomBust")
-
-    #     # Merge team-level
-    #     players = safe_merge(players, TurnDiff(self.season), "team", "TurnDiff")
-    #     players = safe_merge(players, PenDiff(self.season), "team", "PenDiff")
-    #     players = safe_merge(players, TeamScoring(self.season), "team", "TeamScoring")
-    #     players = safe_merge(players, targetDistro(self.season), "team", "targetDistro")
-    #     players = safe_merge(players, teamDEFData(self.season), "team", "teamDEFData")
-    #     players = safe_merge(players, advancedDEFData(self.season), "team", "advancedDEFData")
-
-    #     # -----------------------
-    #     # 3. Clean Data Types
-    #     # -----------------------
-    #     id_columns = ["player_id", "name", "team", "season", "week"]
-    #     for col in players.columns:
-    #         if col in id_columns:
-    #             continue
-
-    #         # Flatten nested objects
-    #         players[col] = players[col].apply(lambda x: str(x) if isinstance(x, (list, dict, pd.DataFrame)) else x)
-
-    #         # Remove non-numeric chars (keep digits, minus, decimal)
-    #         players[col] = players[col].astype(str).str.replace(r"[^0-9.\-]", "", regex=True)
-
-    #         # Convert to numeric & fill NaN
-    #         players[col] = pd.to_numeric(players[col], errors="coerce").fillna(0)
-
-    #     # -----------------------
-    #     # 4. Final Cleanup
-    #     # -----------------------
-    #     players = players.fillna(0)
-    #     players.reset_index(drop=True, inplace=True)
-
-    #     print(f"✨ Final features shape: {players.shape}")
-    #     return players
-
     def create_features(self):
         """
         Build the full player feature set for the given season.
@@ -318,44 +248,6 @@ class NFLDFSPredictor:
         except Exception as e:
             print(f"❌ Training failed for {position}: {e}")
             return {}, None
-    # def train_models(self, X, y, position):
-    #     """
-    #     Trains Gradient Boosting and Random Forest models on numeric-only features.
-    #     Automatically filters invalid columns and removes NaNs.
-    #     """
-    #     print(f"Training models for {position}...")
-    
-    #     # Ensure DataFrame format
-    #     X = pd.DataFrame(X)
-    
-    #     # Keep numeric-only columns
-    #     numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
-    #     X = X[numeric_cols]
-    
-    #     # Drop rows with any NaNs just in case
-    #     nan_rows = X.isna().sum(axis=1) > 0
-    #     if nan_rows.any():
-    #         print(f"⚠️ Dropping {nan_rows.sum()} rows with NaNs before training.")
-    #         X = X[~nan_rows]
-    #         y = y[~nan_rows]
-    
-    #     # Final log of features used
-    #     print(f"✅ Training on {len(numeric_cols)} numeric features:")
-    #     print(f"   Features: {numeric_cols}")
-    
-    #     # Scale features
-    #     scaler = StandardScaler()
-    #     X_scaled = scaler.fit_transform(X)
-    
-    #     # Train models
-    #     gbr = GradientBoostingRegressor(random_state=42)
-    #     rf = RandomForestRegressor(n_estimators=200, random_state=42)
-    
-    #     gbr.fit(X_scaled, y)
-    #     rf.fit(X_scaled, y)
-    
-    #     print(f"✅ Finished training {position} models.")
-    #     return {"gbr": gbr, "rf": rf}, scaler
 
     def predict_ensemble(self, X, models, scaler, position):
         """
@@ -380,39 +272,27 @@ class NFLDFSPredictor:
 
         return preds
 
-    # def predict_ensemble(self, X, models, scaler, position):
-    #     if X.empty:
-    #         return pd.Series([], index=X.index)
-    #     X_scaled = scaler.transform(X)
-    #     preds = []
-    #     for model in models:
-    #         try:
-    #             preds.append(model.predict(X_scaled))
-    #         except Exception:
-    #             preds.append(np.zeros(X.shape[0]))
-    #     preds = np.mean(preds, axis=0)
-    #     return pd.Series(preds, index=X.index)
 
-    def generate_predictions(self, players):
+    def generate_predictions(self, players, floor_mult=FLOOR_MULTIPLIER, ceiling_mult=CEILING_MULTIPLIER):
         """Generate predictions for each position, merge salary data, and cache results."""
         predictions = []
-    
+
         # Load salary once
         salary_df = load_salary_csv(salaryPath + "DKSalaries.csv")
-        
+
         for position in ["QB", "RB", "WR", "TE"]:
             print(f"Training models for {position}...")
-    
+
             pos_df = players[players["position"] == position].copy()
             if pos_df.empty:
                 print(f"⚠️ No data for {position}, skipping.")
                 continue
-            
+
             target = "fantasy_points"
             if target not in pos_df.columns:
                 print(f"⚠️ Missing target '{target}' for {position}, skipping.")
                 continue
-            
+
             # Features & target
             features = [
                 col for col in pos_df.columns
@@ -420,10 +300,10 @@ class NFLDFSPredictor:
             ]
             X = pos_df[features]
             y = pos_df[target]
-    
+
             # Train models
             models, scaler = self.train_models(X, y, position)
-    
+
             if not models or scaler is None:
                 print(f"⚠️ No model trained for {position}, assigning zeros.")
                 pos_df["prediction"] = 0.0
@@ -435,7 +315,7 @@ class NFLDFSPredictor:
                 except Exception as e:
                     print(f"❌ Prediction failed for {position}: {e}")
                     pos_df["prediction"] = 0.0
-    
+
             # --- Merge salary for this position ---
             if salary_df.empty:
                 pos_df["salary"] = np.nan
@@ -446,238 +326,123 @@ class NFLDFSPredictor:
                 )
                 pos_df["team"] = pos_df["team"].astype(str).str.upper()
                 pos_df["position"] = pos_df["position"].astype(str).str.upper()
-    
+
                 exact = (
                     salary_df[["name", "team", "position", "salary"]]
                     .rename(columns={"salary": "salary_exact"})
                 )
                 merged = pos_df.merge(exact, on=["name", "team", "position"], how="left")
-    
+
                 fb = (
                     salary_df[["name", "position", "salary"]]
                     .drop_duplicates(["name", "position"])
                     .rename(columns={"salary": "salary_fallback"})
                 )
                 merged = merged.merge(fb, on=["name", "position"], how="left")
-    
+
                 merged["salary"] = merged["salary_exact"].combine_first(merged["salary_fallback"])
                 merged.drop(columns=["salary_exact", "salary_fallback"], inplace=True)
                 merged["salary"] = pd.to_numeric(merged["salary"], errors="coerce")
                 pos_df = merged
-    
+
             # Deduplicate & add to predictions list
             pos_df = pos_df.drop_duplicates(subset=["name", "team", "position"], keep="first")
             predictions.append(pos_df[[
                 "player_id", "name", "team", "position", "salary",
                 "prediction", "fantasy_points"
             ]])
-    
+
         # Combine all positions
         if not predictions:
             raise RuntimeError("No predictions generated – all positions failed.")
-    
+
         df = pd.concat(predictions, ignore_index=True)
-    
+        
         # Ownership/value/leverage placeholders
         df["ownership"] = 0.0
         df["value"] = df["prediction"] / df["salary"].replace({0: None})
         df["leverage"] = df["prediction"] - df["ownership"]
-    
+
+        # --- Floor & Ceiling using historical variance (normalized by position) ---
+        if "fantasy_points" in players.columns:
+            # Player-level std dev by position
+            player_std = (
+                players.groupby(["position", "name"])["fantasy_points"]
+                .std()
+                .reset_index()
+                .rename(columns={"fantasy_points": "player_std"})
+            )
+
+            # Position-level fallback (if player has too little history)
+            pos_std = (
+                players.groupby("position")["fantasy_points"]
+                .std()
+                .reset_index()
+                .rename(columns={"fantasy_points": "pos_std"})
+            )
+
+            # Merge stds into df
+            df = df.merge(player_std, on=["position", "name"], how="left")
+            df = df.merge(pos_std, on="position", how="left")
+
+            # Fill missing player_std with position average
+            df["player_std"] = df["player_std"].fillna(df["pos_std"])
+
+            # Drop helper column
+            df.drop(columns=["pos_std"], inplace=True)
+        else:
+            df["player_std"] = 2.0  # fallback constant
+
+        # Configurable floor & ceiling
+        #df["floor"] = (df["prediction"] - FLOOR_MULTIPLIER * df["player_std"]).clip(lower=0)
+        #df["ceiling"] = df["prediction"] + CEILING_MULTIPLIER * df["player_std"]
+
+        # Configurable floor & ceiling
+        df["floor"] = (df["prediction"] - floor_mult * df["player_std"]).clip(lower=0)
+        df["ceiling"] = df["prediction"] + ceiling_mult * df["player_std"]
+
+
+        # # --- Floor & Ceiling using historical variance (normalized by position) ---
+        # if "fantasy_points" in players.columns:
+        #     # Player-level std dev by position
+        #     player_std = (
+        #         players.groupby(["position", "name"])["fantasy_points"]
+        #         .std()
+        #         .reset_index()
+        #         .rename(columns={"fantasy_points": "player_std"})
+        #     )
+
+        #     # Position-level fallback (if a player has only 1 week of data, std = NaN)
+        #     pos_std = (
+        #         players.groupby("position")["fantasy_points"]
+        #         .std()
+        #         .reset_index()
+        #         .rename(columns={"fantasy_points": "pos_std"})
+        #     )
+
+        #     # Merge player std + position std into df
+        #     df = df.merge(player_std, on=["position", "name"], how="left")
+        #     df = df.merge(pos_std, on="position", how="left")
+
+        #     # Fill missing player_std with position average
+        #     df["player_std"] = df["player_std"].fillna(df["pos_std"])
+
+        #     # Drop helper column
+        #     df.drop(columns=["pos_std"], inplace=True)
+        # else:
+        #     # Fallback constant if no history exists
+        #     df["player_std"] = 2.0
+
+        # # Floor and ceiling projections
+        # df["floor"] = (df["prediction"] - df["player_std"]).clip(lower=0)
+        # df["ceiling"] = df["prediction"] + df["player_std"]
+
         # Final deduplication
         df = df.drop_duplicates(subset=["name", "team", "position"], keep="first")
-    
+
         self.cached_predictions = df
         print(f"✅ Final predictions cached, shape={df.shape}")
         return df
-
-    # def generate_predictions(self, players):
-    #     """Generate predictions for each position, merge salary data, and cache results."""
-    #     predictions = []
-
-    #     # Load salary data once
-    #     salary_df = load_salary_csv(salaryPath+"DKSalaries.csv")
-
-    #     for position in ["QB", "RB", "WR", "TE"]:
-    #         print(f"Training models for {position}...")
-
-    #         # Filter players by position
-    #         pos_df = players[players["position"] == position].copy()
-    #         if pos_df.empty:
-    #             print(f"⚠️ No data for {position}, skipping.")
-    #             continue
-
-    #         # Ensure target exists
-    #         target = "fantasy_points"
-    #         if target not in pos_df.columns:
-    #             print(f"⚠️ Missing target '{target}' for {position}, skipping.")
-    #             continue
-
-    #         # Features & target
-    #         features = [
-    #             col for col in pos_df.columns
-    #             if col not in ["player_id", "name", "team", "position", target]
-    #         ]
-    #         X = pos_df[features]
-    #         y = pos_df[target]
-
-    #         # Train models
-    #         models, scaler = self.train_models(X, y, position)
-
-    #         if not models or scaler is None:
-    #             print(f"⚠️ No model trained for {position}, assigning zeros.")
-    #             pos_df["prediction"] = 0.0
-    #         else:
-    #             try:
-    #                 X_scaled = scaler.transform(X.fillna(0))
-    #                 pos_df["prediction"] = models["main"].predict(X_scaled)
-    #                 print(f"✅ Generated predictions for {position}, shape={pos_df.shape}")
-    #             except Exception as e:
-    #                 print(f"❌ Prediction failed for {position}: {e}")
-    #                 pos_df["prediction"] = 0.0
-
-    #             # --- Salary merge (exact first, then fallback by name+position) ---
-    #     salary_df = load_salary_csv(salaryPath+"DKSalaries.csv" if 'salaryPath' in globals() else "DKSalaries.csv")
-    #     if salary_df.empty:
-    #         print("⚠️ No salary data found, leaving salary blank.")
-    #         pos_df["salary"] = np.nan
-    #     else:
-    #         # Normalize for join (keep it light; your loader already normalizes)
-    #         pos_df["name"] = (
-    #             pos_df["name"].astype(str).str.strip().str.title()
-    #             .str.replace(r"\s(Jr\.|III|II)$", "", regex=True)
-    #         )
-    #         pos_df["team"] = pos_df["team"].astype(str).str.upper()
-    #         pos_df["position"] = pos_df["position"].astype(str).str.upper()
-
-    #         # 1) Exact match on name+team+position -> salary_exact
-    #         exact = (
-    #             salary_df[["name", "team", "position", "salary"]]
-    #             .rename(columns={"salary": "salary_exact"})
-    #         )
-    #         merged = pos_df.merge(exact, on=["name", "team", "position"], how="left")
-
-    #         # 2) Fallback on name+position only -> salary_fallback
-    #         fb = (
-    #             salary_df[["name", "position", "salary"]]
-    #             .drop_duplicates(["name", "position"])
-    #             .rename(columns={"salary": "salary_fallback"})
-    #         )
-    #         merged = merged.merge(fb, on=["name", "position"], how="left")
-
-    #         # 3) Prefer exact, else fallback
-    #         merged["salary"] = merged["salary_exact"].combine_first(merged["salary_fallback"])
-
-    #         # Housekeeping
-    #         merged.drop(columns=["salary_exact", "salary_fallback"], inplace=True)
-
-    #         # Make sure it's numeric
-    #         merged["salary"] = pd.to_numeric(merged["salary"], errors="coerce")
-
-    #         matched = merged["salary"].notna().sum()
-    #         print(f"✅ Salary matched for {matched}/{len(merged)} {position} players.")
-
-    #         # Optional: show a few that still missed
-    #         miss = merged[merged["salary"].isna()]
-    #         if not miss.empty:
-    #             #print(f"⚠️ Still missing salary for {len(miss)} {position} players (top 5):")
-    #             #print(miss[["name", "team", "position"]].head(5).to_string(index=False))
-    #             print(f"⚠️ Still missing salary for {len(miss)} {position} players (e.g., {', '.join(miss['name'].head(5))})")
-
-
-    #         pos_df = merged
-    #     # --- end salary merge ---
-        
-    #     # Collect predictions for this position
-    #     predictions.append(pos_df[[
-    #         "player_id", "name", "team", "position",
-    #         "salary", "prediction", "fantasy_points"
-    #     ]])
-        
-    #     # Combine all positions
-    #     if not predictions:
-    #         raise RuntimeError("No predictions generated – all positions failed.")
-
-    #     df = pd.concat(predictions, ignore_index=True)
-
-    #     # Placeholder ownership/value/leverage until we add real logic
-    #     df["ownership"] = 0.0
-    #     df["value"] = df["prediction"] / df["salary"].replace({0: None})
-    #     df["leverage"] = df["prediction"] - df["ownership"]
-
-    #     # Cache predictions for API
-    #     df = df.drop_duplicates(subset=["name", "team", "position"], keep="first")
-    #     self.cached_predictions = df
-    #     print(f"✅ Final predictions cached, shape={df.shape}")
-    #     return df
-
-    # def generate_predictions(self, players):
-    #     """Generate predictions safely, returning 0s if models cannot be trained."""
-    #     predictions = []
-
-    #     for position in ["QB", "RB", "WR", "TE"]:
-    #         print(f"Training models for {position}...")
-
-    #         # Select features for this position
-    #         pos_df = players[players["position"] == position].copy()
-    #         if pos_df.empty:
-    #             print(f"⚠️ No data for {position}, skipping.")
-    #             continue
-
-    #         features = [col for col in pos_df.columns if col not in ["player_id", "name", "team", "position", "fantasy_points"]]
-    #         target = "fantasy_points"
-
-    #         if target not in pos_df.columns:
-    #             print(f"⚠️ Missing target '{target}' for {position}, skipping.")
-    #             continue
-
-    #         X = pos_df[features]
-    #         y = pos_df[target]
-
-    #         models, scaler = self.train_models(X, y, position)
-
-    #         if not models or scaler is None:
-    #             print(f"⚠️ No model trained for {position}, assigning zeros.")
-    #             pos_df["prediction"] = 0.0
-    #         else:
-    #             try:
-    #                 X_scaled = scaler.transform(X.fillna(0))
-    #                 pos_df["prediction"] = models["main"].predict(X_scaled)
-    #                 print(f"✅ Generated predictions for {position}, shape={pos_df.shape}")
-    #             except Exception as e:
-    #                 print(f"❌ Prediction failed for {position}: {e}")
-    #                 pos_df["prediction"] = 0.0
-
-    #         predictions.append(pos_df[["player_id", "name", "team", "position", "prediction"]])
-
-    #     # If no predictions at all
-    #     if not predictions:
-    #         raise RuntimeError("No predictions generated – all positions failed.")
-
-    #     # Combine all position predictions
-    #     df = pd.concat(predictions, ignore_index=True)
-
-    #     # Load and merge salary
-    #     salary_df = load_salary_csv("DKSalaries.csv")
-    #     if not salary_df.empty:
-    #         df = df.merge(
-    #             salary_df[["name", "team", "position", "salary"]],
-    #             on=["name", "team", "position"],
-    #             how="left"
-    #         )
-    #         print(f"✅ Merged salary data → {df['salary'].notna().sum()} matched players.")
-    #     else:
-    #         print("⚠️ No salary data found, leaving salary blank.")
-    #         df["salary"] = None
-
-    #     # Ensure ownership column exists (frontend expects it)
-    #         if "ownership" not in df.columns:
-    #             df["ownership"] = None
-
-    #         self.cached_predictions = df
-    #         return df
-
-    #     self.cached_predictions = df
-    #     return df
 
     def run_full_pipeline(self):
         feats = self.create_features()

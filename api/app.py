@@ -9,6 +9,11 @@ from flask_cors import CORS
 
 from predict import NFLDFSPredictor
 
+# Floor/Ceiling multipliers (tunable)
+FLOOR_MULTIPLIER = 1.0   # use 1.0 for conservative floor (cash games), higher for riskier
+CEILING_MULTIPLIER = 1.5 # use >1.0 to widen upside range (e.g., 1.5–2.0 for GPPs)
+
+
 # ----------------------------------------------------------------------------
 # Flask App Setup
 # ----------------------------------------------------------------------------
@@ -73,26 +78,24 @@ def get_predictions():
         if predictor.cached_predictions is None:
             return jsonify({"error": "Predictions not ready"}), 503
 
+        # Allow override of floor/ceiling multipliers
+        floor_mult = request.args.get("floor_mult", default=FLOOR_MULTIPLIER, type=float)
+        ceiling_mult = request.args.get("ceiling_mult", default=CEILING_MULTIPLIER, type=float)
+
+        # Re-run with multipliers if needed
         df = predictor.cached_predictions.copy()
+        df["floor"] = (df["prediction"] - floor_mult * df["player_std"]).clip(lower=0)
+        df["ceiling"] = df["prediction"] + ceiling_mult * df["player_std"]
 
-        # --- Load DK main slate salaries ---
-        dk_salaries = pd.read_csv("/home/iamgeneral/Documents/NewRepo/ProjectionPipeline/api/data/DKSalaries.csv")
-        valid_players = set(dk_salaries['Name'])  # or dk_salaries['PlayerID'] if available
-
-        # --- Filter predictions to main slate players ---
-        df = df[df['name'].isin(valid_players)]
-        #df = df.drop_duplicates(subset=["name"])
-
-        # --- Optional: Apply salary filters from frontend query params ---
+        # --- Optional: salary filters from frontend ---
         min_salary = request.args.get("min_salary", type=int)
         max_salary = request.args.get("max_salary", type=int)
 
         if min_salary is not None:
-            df = df[df['Salary'] >= min_salary]
+            df = df[df["salary"] >= min_salary]
         if max_salary is not None:
-            df = df[df['Salary'] <= max_salary]
+            df = df[df["salary"] <= max_salary]
 
-        # Return filtered predictions
         return df.to_json(orient="records")
 
     except Exception as e:
