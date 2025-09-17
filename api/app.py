@@ -78,25 +78,33 @@ def get_predictions():
         if predictor.cached_predictions is None:
             return jsonify({"error": "Predictions not ready"}), 503
 
-        # Allow override of floor/ceiling multipliers
+        df = predictor.cached_predictions.copy()
+
+        # --- Allow override of floor/ceiling multipliers ---
         floor_mult = request.args.get("floor_mult", default=FLOOR_MULTIPLIER, type=float)
         ceiling_mult = request.args.get("ceiling_mult", default=CEILING_MULTIPLIER, type=float)
 
-        # Re-run with multipliers if needed
-        df = predictor.cached_predictions.copy()
-        df["floor"] = (df["prediction"] - floor_mult * df["player_std"]).clip(lower=0)
-        df["ceiling"] = df["prediction"] + ceiling_mult * df["player_std"]
+        if "player_std" in df.columns:
+            df["floor"] = (df["prediction"] - floor_mult * df["player_std"]).clip(lower=0)
+            df["ceiling"] = df["prediction"] + ceiling_mult * df["player_std"]
 
-        # --- Optional: salary filters from frontend ---
+        # --- Optional: Salary filters from frontend ---
         min_salary = request.args.get("min_salary", type=int)
         max_salary = request.args.get("max_salary", type=int)
-
         if min_salary is not None:
             df = df[df["salary"] >= min_salary]
         if max_salary is not None:
             df = df[df["salary"] <= max_salary]
 
-        return df.to_json(orient="records")
+        # ✅ Sanitize values so JSON is always valid
+        clean_df = df.replace([np.inf, -np.inf], None).where(pd.notnull(df), None)
+
+        # ✅ Always return wrapped JSON object
+        return jsonify({
+            "predictions": clean_df.to_dict(orient="records"),
+            "total_count": len(clean_df),
+            "last_update": datetime.utcnow().isoformat()
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

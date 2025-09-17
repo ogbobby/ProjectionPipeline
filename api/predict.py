@@ -439,6 +439,10 @@ class NFLDFSPredictor:
 
         # Final deduplication
         df = df.drop_duplicates(subset=["name", "team", "position"], keep="first")
+        df = df.dropna()
+        df = df[df['salary'].notna()]
+        if "team_salary" in df.columns:
+            df["team"] = df["team_salary"]
 
         self.cached_predictions = df
         print(f"✅ Final predictions cached, shape={df.shape}")
